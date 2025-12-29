@@ -1,17 +1,24 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "multirange"
+module-root = ""
 
 [project]
 name = "django-multirange"
-version = "0.0.0"
+version = "1.0.0"
 description = "Django multirange plugin"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [ { name = "", email = "" } ]
+authors = [ { name = "Rémi Desgrange", email = "remi.desgrange@ielo.net" } ]
 license = { text = "MIT" }
 
-dependencies = []
+dependencies = [
+    "Django>=4.2",
+    "psycopg>=3"
+]
 
 [project.optional-dependencies]
 tests = [
@@ -19,10 +26,30 @@ tests = [
   "pytest-django>=4.5"
 ]
 
-[tool.setuptools]
-packages = {find = {where = ["."]}}
+[project.urls]
+# https://packaging.python.org/en/latest/specifications/well-known-project-urls/#well-known-labels
+Homepage = "https://github.com/ielo-liazo/django-multirange"
+Changelog = "https://github.com/ielo-liazo/django-multirange/releases"
+Source = "https://github.com/ielo-liazo/django-multirange"
+Releasenotes = "https://github.com/ielo-liazo/django-multirange/releases/latest"
+Documentation = "https://github.com/ielo-liazo/django-multirange"
+Issues = "https://github.com/ielo-liazo/django-multirange/issues"
+
 
 [tool.pytest.ini_options]
 minversion = "7.0"
 addopts = "-q"
 testpaths = ["tests"]
+
+
+
+[tool.coverage.run]
+source = ["multirange"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
