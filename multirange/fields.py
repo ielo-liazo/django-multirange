@@ -1,41 +1,120 @@
-"""Model field(s) for PostgreSQL multirange support.
+"""Model fields for PostgreSQL multirange support.
 
-This file contains the `MultiRangeField` placeholder. Implement
-database encoding/decoding and lookups here when ready.
+Provides Django ORM field classes for the five built-in PostgreSQL
+multirange types: int4multirange, int8multirange, nummultirange,
+datemultirange, tstzmultirange.
+
+A multirange is a (possibly empty) collection of non-contiguous ranges
+of the same base type. PostgreSQL automatically normalizes multiranges
+on input by merging overlapping or adjacent ranges and dropping empty
+ones. The Python representation uses psycopg's ``Multirange`` subclasses
+which behave like a sequence of ``Range`` objects.
 """
-import json
-from django.db import models
-from django.contrib.postgres.utils import CheckPostgresInstalledMixin
-from django.contrib.postgres.fields.utils import AttributeSetter
-from django.contrib.postgres import lookups
-from django.db.models.functions import Cast
-from psycopg.types.multirange import Multirange, DateMultirange, NumericMultirange, Int4Multirange, Int8Multirange
+from __future__ import annotations
 
+import json
+from typing import Any, Iterable
+
+from django.contrib.postgres.fields.utils import AttributeSetter
+from django.contrib.postgres.utils import CheckPostgresInstalledMixin
+from django.db import models
+from django.db.models.functions import Cast
+from psycopg.types.multirange import (
+    DateMultirange,
+    Int4Multirange,
+    Int8Multirange,
+    Multirange,
+    NumericMultirange,
+    TimestamptzMultirange,
+)
+from psycopg.types.range import Range
+
+from . import lookups as mr_lookups
 
 __all__ = [
     "MultiRangeField",
     "MultiIntegerRangeField",
     "MultiBigIntegerRangeField",
     "MultiDecimalRangeField",
-    "MultiDateTimeRangeField",
     "MultiDateRangeField",
-    "MultiRangeBoundary",
+    "MultiDateTimeRangeField",
     "MultiRangeOperators",
 ]
 
-class MultiRangeField(CheckPostgresInstalledMixin, models.Field):
-    empty_strings_allowed = False
 
+class MultiRangeOperators:
+    """PostgreSQL multirange operators.
+
+    See https://www.postgresql.org/docs/current/functions-range.html
+    """
+
+    EQUAL = "="
+    NOT_EQUAL = "<>"
+    CONTAINS = "@>"
+    CONTAINED_BY = "<@"
+    OVERLAPS = "&&"
+    FULLY_LT = "<<"
+    FULLY_GT = ">>"
+    NOT_LT = "&>"
+    NOT_GT = "&<"
+    ADJACENT_TO = "-|-"
+
+
+def _coerce_to_multirange(multirange_type: type[Multirange], value: Any) -> Multirange:
+    """Build a Multirange of the given type from a flexible input.
+
+    Accepts:
+      - ``Multirange`` instances (returned as-is when type matches, otherwise rebuilt)
+      - ``Range`` instance (wrapped as a single-range multirange)
+      - iterable of ``Range`` instances
+      - iterable of ``(lower, upper)`` or ``(lower, upper, bounds)`` tuples
+    """
+    if isinstance(value, multirange_type):
+        return value
+    if isinstance(value, Multirange):
+        return multirange_type(list(value))
+    if isinstance(value, Range):
+        return multirange_type([value])
+    ranges: list[Range] = []
+    for item in value:
+        if isinstance(item, Range):
+            ranges.append(item)
+        elif isinstance(item, (list, tuple)):
+            if len(item) == 2:
+                ranges.append(Range(item[0], item[1]))
+            elif len(item) == 3:
+                ranges.append(Range(item[0], item[1], item[2]))
+            else:
+                raise ValueError(
+                    "Range tuple must have 2 or 3 elements (lower, upper[, bounds])"
+                )
+        else:
+            raise TypeError(
+                f"Cannot interpret {item!r} as a Range for {multirange_type.__name__}"
+            )
+    return multirange_type(ranges)
+
+
+class MultiRangeField(CheckPostgresInstalledMixin, models.Field):
+    """Base class for PostgreSQL multirange fields.
+
+    Subclasses must define ``base_field`` (a Django field class for the
+    element type), ``multirange_type`` (a psycopg ``Multirange`` subclass),
+    and ``db_type`` returning the PostgreSQL type name.
+    """
+
+    empty_strings_allowed = False
     description = "PostgreSQL multirange field"
 
-    def __init__(self, *args, **kwargs):
+    base_field: Any = None
+    multirange_type: type[Multirange] = Multirange
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         if "default_bounds" in kwargs:
             raise TypeError(
                 f"Cannot use 'default_bounds' with {self.__class__.__name__}."
             )
-        # Initializing base_field here ensures that its model matches the model
-        # for self.
-        if hasattr(self, "base_field"):
+        if isinstance(self.base_field, type):
             self.base_field = self.base_field()
         super().__init__(*args, **kwargs)
 
@@ -60,98 +139,148 @@ class MultiRangeField(CheckPostgresInstalledMixin, models.Field):
     def get_placeholder(self, value, compiler, connection):
         return "%s::{}".format(self.db_type(connection))
 
-    def get_prep_value(self, value):
+    def get_prep_value(self, value: Any) -> Any:
         if value is None:
             return None
-        elif isinstance(value, MultiRange):
+        if isinstance(value, self.multirange_type):
             return value
-        elif isinstance(value, (list, tuple)):
-            return self.multi_range_type(value[0], value[1])
+        if isinstance(value, Multirange):
+            return self.multirange_type(list(value))
+        if isinstance(value, Range):
+            return self.multirange_type([value])
+        if isinstance(value, (list, tuple)):
+            return _coerce_to_multirange(self.multirange_type, value)
         return value
 
-    def to_python(self, value):
+    def to_python(self, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, self.multirange_type):
+            return value
+        if isinstance(value, Multirange):
+            return self.multirange_type(list(value))
         if isinstance(value, str):
-            # Assume we're deserializing
-            vals = json.loads(value)
-            for end in ("lower", "upper"):
-                if end in vals:
-                    vals[end] = self.base_field.to_python(vals[end])
-            value = self.multi_range_type(**vals)
-        elif isinstance(value, (list, tuple)):
-            value = self.multi_range_type(value[0], value[1])
+            data = json.loads(value)
+            return self._multirange_from_serialized(data)
+        if isinstance(value, (list, tuple)):
+            return _coerce_to_multirange(self.multirange_type, value)
         return value
 
-    def set_attributes_from_name(self, name):
+    def from_db_value(self, value, expression, connection):
+        """Wrap psycopg's generic ``Multirange`` in our typed subclass.
+
+        psycopg's multirange loaders always return the base ``Multirange``
+        class regardless of the underlying PostgreSQL type. Wrapping the
+        result here keeps reads symmetric with writes (which always use
+        the typed subclass) and is what user code expects when checking
+        ``isinstance(row.field, Int4Multirange)``.
+        """
+        if value is None:
+            return None
+        if isinstance(value, self.multirange_type):
+            return value
+        if isinstance(value, Multirange):
+            return self.multirange_type(list(value))
+        return value
+
+    def _multirange_from_serialized(self, data: Any) -> Multirange:
+        """Rebuild a multirange from the structure produced by value_to_string."""
+        if not isinstance(data, list):
+            raise ValueError(
+                "Serialized multirange must be a JSON list of range objects"
+            )
+        ranges: list[Range] = []
+        for item in data:
+            if not isinstance(item, dict):
+                raise ValueError("Each serialized range must be a JSON object")
+            if item.get("empty"):
+                ranges.append(Range(empty=True))
+                continue
+            kwargs: dict[str, Any] = {}
+            for end in ("lower", "upper"):
+                if end in item and item[end] is not None:
+                    kwargs[end] = self.base_field.to_python(item[end])
+                elif end in item:
+                    kwargs[end] = None
+            if "bounds" in item:
+                kwargs["bounds"] = item["bounds"]
+            ranges.append(Range(**kwargs))
+        return self.multirange_type(ranges)
+
+    def set_attributes_from_name(self, name: str) -> None:
         super().set_attributes_from_name(name)
         self.base_field.set_attributes_from_name(name)
 
-    def value_to_string(self, obj):
+    def value_to_string(self, obj: Any) -> str | None:
         value = self.value_from_object(obj)
         if value is None:
             return None
-        if value.isempty:
-            return json.dumps({"empty": True})
+        result: list[dict[str, Any]] = []
         base_field = self.base_field
-        result = {"bounds": value._bounds}
-        for end in ("lower", "upper"):
-            val = getattr(value, end)
-            if val is None:
-                result[end] = None
-            else:
-                obj = AttributeSetter(base_field.attname, val)
-                result[end] = base_field.value_to_string(obj)
+        for r in value:
+            if r.isempty:
+                result.append({"empty": True})
+                continue
+            entry: dict[str, Any] = {"bounds": r._bounds}
+            for end in ("lower", "upper"):
+                v = getattr(r, end)
+                if v is None:
+                    entry[end] = None
+                else:
+                    holder = AttributeSetter(base_field.attname, v)
+                    entry[end] = base_field.value_to_string(holder)
+            result.append(entry)
         return json.dumps(result)
 
-    def formfield(self, **kwargs):
-        return None
+    def formfield(self, **kwargs: Any) -> Any:
+        # Provide a basic form field if a class is defined; otherwise return None
+        # so admin/Form usage is opt-in for multiranges.
+        form_class = getattr(self, "form_field", None)
+        if form_class is None:
+            return None
+        kwargs.setdefault("form_class", form_class)
+        return super().formfield(**kwargs)
+
 
 class MultiIntegerRangeField(MultiRangeField):
     base_field = models.IntegerField
-    range_type = Int4Multirange
-    #form_field = forms.IntegerRangeField
+    multirange_type = Int4Multirange
 
     def db_type(self, connection):
         return "int4multirange"
 
+
 class MultiBigIntegerRangeField(MultiRangeField):
     base_field = models.BigIntegerField
-    range_type = Int8Multirange
-    #form_field = forms.BigIntegerRangeField
-    #
+    multirange_type = Int8Multirange
+
     def db_type(self, connection):
         return "int8multirange"
 
 
 class MultiDecimalRangeField(MultiRangeField):
     base_field = models.DecimalField
-    range_type = NumericMultirange
+    multirange_type = NumericMultirange
 
     def db_type(self, connection):
         return "nummultirange"
 
+
 class MultiDateRangeField(MultiRangeField):
     base_field = models.DateField
-    range_type = DateMultirange
+    multirange_type = DateMultirange
 
     def db_type(self, connection):
         return "datemultirange"
 
+
 class MultiDateTimeRangeField(MultiRangeField):
-    base_field = models.DateField
-    range_type = DateMultirange
+    base_field = models.DateTimeField
+    multirange_type = TimestamptzMultirange
 
     def db_type(self, connection):
         return "tstzmultirange"
 
 
-
-class MultirangeContains(lookups.DataContains):
-    def get_prep_lookup(self):
-        if not isinstance(self.rhs, (list, tuple, Multirange)):
-            return Cast(self.rhs, self.lhs.field.base_field)
-        return super().get_prep_lookup()
-
-
-MultiRangeField.register_lookup(MultirangeContains)
-MultiRangeField.register_lookup(lookups.ContainedBy)
-MultiRangeField.register_lookup(lookups.Overlap)
+# Register lookups for all multirange fields.
+mr_lookups.register_for(MultiRangeField)

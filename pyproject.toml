@@ -23,7 +23,9 @@ dependencies = [
 [project.optional-dependencies]
 tests = [
   "pytest>=7.0",
-  "pytest-django>=4.5"
+  "pytest-django>=4.5",
+  "hypothesis>=6.100",
+  "testcontainers[postgres]>=4.7",
 ]
 
 [project.urls]
@@ -40,7 +42,7 @@ Issues = "https://github.com/ielo-liazo/django-multirange/issues"
 minversion = "7.0"
 addopts = "-q"
 testpaths = ["tests"]
-
+DJANGO_SETTINGS_MODULE = "tests.settings"
 
 
 [tool.coverage.run]
