@@ -59,8 +59,12 @@ jobs:
         run: uv sync --extra tests
 
       - name: Pin Django to ${{ matrix.django-version }}
-        # Override the resolved Django with the matrix version.
+        # Override the resolved Django with the matrix version. We have to
+        # do this after `uv sync` because the lockfile pins different Django
+        # majors per Python version.
         run: uv pip install "django==${{ matrix.django-version }}.*"
 
       - name: Run tests
-        run: uv run pytest -v
+        # `--no-sync` is critical: without it `uv run` re-syncs the venv
+        # back to the lockfile, undoing the Django pin above.
+        run: uv run --no-sync pytest -v

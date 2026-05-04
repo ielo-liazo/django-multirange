@@ -8,6 +8,7 @@ PostgreSQL multirange operators as Django lookups.
 
 See https://www.postgresql.org/docs/current/functions-range.html
 """
+
 from __future__ import annotations
 
 from django.contrib.postgres import lookups as pg_lookups

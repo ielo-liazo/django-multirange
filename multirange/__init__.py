@@ -1,4 +1,5 @@
 """Django ORM support for PostgreSQL multirange types."""
+
 from __future__ import annotations
 
 from .fields import (

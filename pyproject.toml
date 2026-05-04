@@ -37,6 +37,11 @@ Releasenotes = "https://github.com/ielo-liazo/django-multirange/releases/latest"
 Documentation = "https://github.com/ielo-liazo/django-multirange"
 Issues = "https://github.com/ielo-liazo/django-multirange/issues"
 
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+]
+
 
 [tool.pytest.ini_options]
 minversion = "7.0"

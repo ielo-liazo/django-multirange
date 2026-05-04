@@ -10,15 +10,16 @@ on input by merging overlapping or adjacent ranges and dropping empty
 ones. The Python representation uses psycopg's ``Multirange`` subclasses
 which behave like a sequence of ``Range`` objects.
 """
+
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable
+from typing import Any
 
+from django.apps import apps
 from django.contrib.postgres.fields.utils import AttributeSetter
-from django.contrib.postgres.utils import CheckPostgresInstalledMixin
+from django.core import checks
 from django.db import models
-from django.db.models.functions import Cast
 from psycopg.types.multirange import (
     DateMultirange,
     Int4Multirange,
@@ -30,6 +31,32 @@ from psycopg.types.multirange import (
 from psycopg.types.range import Range
 
 from . import lookups as mr_lookups
+
+try:
+    # Django 6.0+ ships this mixin; on earlier versions we provide an
+    # equivalent below so the check is consistent across supported Djangos.
+    from django.contrib.postgres.utils import CheckPostgresInstalledMixin
+except ImportError:  # pragma: no cover - exercised on Django < 6.0
+
+    class CheckPostgresInstalledMixin:
+        def _check_postgres_installed(self, *args):
+            obj = args[0] if args else self
+            if not apps.is_installed("django.contrib.postgres"):
+                return [
+                    checks.Error(
+                        "'django.contrib.postgres' must be in INSTALLED_APPS "
+                        f"in order to use {self.__class__.__name__}.",
+                        obj=obj,
+                        id="postgres.E005",
+                    )
+                ]
+            return []
+
+        def check(self, *args, **kwargs):
+            errors = super().check(*args, **kwargs)
+            errors.extend(self._check_postgres_installed(*args))
+            return errors
+
 
 __all__ = [
     "MultiRangeField",
@@ -85,13 +112,9 @@ def _coerce_to_multirange(multirange_type: type[Multirange], value: Any) -> Mult
             elif len(item) == 3:
                 ranges.append(Range(item[0], item[1], item[2]))
             else:
-                raise ValueError(
-                    "Range tuple must have 2 or 3 elements (lower, upper[, bounds])"
-                )
+                raise ValueError("Range tuple must have 2 or 3 elements (lower, upper[, bounds])")
         else:
-            raise TypeError(
-                f"Cannot interpret {item!r} as a Range for {multirange_type.__name__}"
-            )
+            raise TypeError(f"Cannot interpret {item!r} as a Range for {multirange_type.__name__}")
     return multirange_type(ranges)
 
 
@@ -111,9 +134,7 @@ class MultiRangeField(CheckPostgresInstalledMixin, models.Field):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         if "default_bounds" in kwargs:
-            raise TypeError(
-                f"Cannot use 'default_bounds' with {self.__class__.__name__}."
-            )
+            raise TypeError(f"Cannot use 'default_bounds' with {self.__class__.__name__}.")
         if isinstance(self.base_field, type):
             self.base_field = self.base_field()
         super().__init__(*args, **kwargs)
@@ -123,9 +144,7 @@ class MultiRangeField(CheckPostgresInstalledMixin, models.Field):
         try:
             return self.__dict__["model"]
         except KeyError:
-            raise AttributeError(
-                f"'{self.__class__.__name__}' object has no attribute 'model'"
-            )
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute 'model'")
 
     @model.setter
     def model(self, model):
@@ -186,9 +205,7 @@ class MultiRangeField(CheckPostgresInstalledMixin, models.Field):
     def _multirange_from_serialized(self, data: Any) -> Multirange:
         """Rebuild a multirange from the structure produced by value_to_string."""
         if not isinstance(data, list):
-            raise ValueError(
-                "Serialized multirange must be a JSON list of range objects"
-            )
+            raise ValueError("Serialized multirange must be a JSON list of range objects")
         ranges: list[Range] = []
         for item in data:
             if not isinstance(item, dict):

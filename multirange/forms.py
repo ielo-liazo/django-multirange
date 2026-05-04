@@ -6,6 +6,7 @@ single HTML form widget. This module exposes a base ``MultiRangeFormField``
 that round-trips a JSON representation, suitable for use behind an API
 or a custom widget.
 """
+
 from __future__ import annotations
 
 import json
@@ -35,22 +36,16 @@ class MultiRangeFormField(forms.Field):
             try:
                 value = json.loads(value)
             except json.JSONDecodeError as exc:
-                raise forms.ValidationError(
-                    f"Invalid JSON for multirange: {exc}"
-                ) from exc
+                raise forms.ValidationError(f"Invalid JSON for multirange: {exc}") from exc
         if not isinstance(value, list):
-            raise forms.ValidationError(
-                "Multirange value must decode to a JSON list of range objects."
-            )
+            raise forms.ValidationError("Multirange value must decode to a JSON list of range objects.")
         ranges: list[Range] = []
         for item in value:
             if isinstance(item, Range):
                 ranges.append(item)
                 continue
             if not isinstance(item, dict):
-                raise forms.ValidationError(
-                    "Each range entry must be a JSON object."
-                )
+                raise forms.ValidationError("Each range entry must be a JSON object.")
             if item.get("empty"):
                 ranges.append(Range(empty=True))
                 continue
