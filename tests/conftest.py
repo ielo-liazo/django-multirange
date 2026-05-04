@@ -70,16 +70,46 @@ def _postgres_container(request):
     return pg
 
 
+def _install_btree_gist_on_template1() -> None:
+    """Install btree_gist on template1 so cloned test DBs inherit it.
+
+    The exclusion constraint on ``VlanReservation`` mixes an integer
+    column (``customer_id WITH =``) with a multirange (``vlans WITH &&``)
+    inside a GiST index. The integer side needs the ``btree_gist``
+    extension, which must exist before pytest-django runs schema setup.
+    Putting it on ``template1`` means every newly-created database picks
+    it up automatically, including the test DB Django clones.
+    """
+    import psycopg
+
+    from . import settings as test_settings
+
+    cfg = test_settings._database_from_env()
+    with psycopg.connect(
+        host=cfg["HOST"],
+        port=cfg["PORT"],
+        user=cfg["USER"],
+        password=cfg["PASSWORD"],
+        dbname="template1",
+        autocommit=True,
+    ) as conn:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS btree_gist")
+
+
 @pytest.fixture(scope="session")
 def django_db_modify_db_settings(_postgres_container):
     """Refresh DATABASES with whatever PG* env vars are in scope.
 
     pytest-django reads ``settings.DATABASES`` once during DB setup, so
     we patch it after the container has assigned its host/port. When the
-    environment was already configured, this is a no-op.
+    environment was already configured, this is a no-op. We also take
+    this hook to install ``btree_gist`` on ``template1`` (see above),
+    since it's the last point we run before pytest-django creates the
+    test DB.
     """
     from django.conf import settings
 
     from . import settings as test_settings
 
     settings.DATABASES["default"].update(test_settings._database_from_env())
+    _install_btree_gist_on_template1()

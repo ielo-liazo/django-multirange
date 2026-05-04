@@ -40,6 +40,7 @@ DATABASES = {"default": _database_from_url(_url) if _url else _database_from_env
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
+    "django.contrib.postgres",
     "tests",
 ]
 
