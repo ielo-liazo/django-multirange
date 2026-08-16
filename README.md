@@ -83,7 +83,7 @@ property-based round-trip checks against a real PostgreSQL database.
 
 If `DATABASE_URL` and the `PG*` environment variables are unset, the
 test fixture in `tests/conftest.py` will start an ephemeral
-PostgreSQL 17 container via [`testcontainers`][testcontainers] and tear
+PostgreSQL 18 container via [`testcontainers`][testcontainers] and tear
 it down at the end of the session. You only need Docker to be running:
 
 ```sh
@@ -121,7 +121,7 @@ uv run pytest tests/test_smoke.py tests/test_serialization.py
 
 ### CI
 
-GitHub Actions uses a `postgres:17` service container on every push
+GitHub Actions uses a `postgres:18` service container on every push
 and pull request, against the matrix of supported Python (3.10–3.13)
 and Django (4.2 / 5.2 / 6.0) versions.
 

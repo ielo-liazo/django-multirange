@@ -27,8 +27,8 @@ jobs:
 
     services:
       postgres:
-        # Postgres 14 introduced multirange types; use 17 (current stable).
-        image: postgres:17
+        # Postgres 14 introduced multirange types; use 18 (current stable).
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

@@ -58,7 +58,7 @@ def _postgres_container(request):
     _autodetect_docker_host()
 
     # Postgres 14 introduced multirange types. Use a recent stable image.
-    pg = PostgresContainer("postgres:17-alpine")
+    pg = PostgresContainer("postgres:18-alpine")
     pg.start()
     request.addfinalizer(pg.stop)
 
