@@ -122,8 +122,8 @@ uv run pytest tests/test_smoke.py tests/test_serialization.py
 ### CI
 
 GitHub Actions uses a `postgres:18` service container on every push
-and pull request, against the matrix of supported Python (3.10–3.13)
-and Django (4.2 / 5.2 / 6.0) versions.
+and pull request, against the matrix of supported Python (3.10–3.14)
+and Django (4.2 / 5.2 / 6.0 / 6.1) versions.
 
 ## License
 

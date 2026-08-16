@@ -155,7 +155,18 @@ class MultiRangeField(CheckPostgresInstalledMixin, models.Field):
     def _choices_is_value(cls, value):
         return isinstance(value, (list, tuple)) or super()._choices_is_value(value)
 
+    def get_placeholder_sql(self, value, compiler, connection):
+        # Django 6.1+ API. Defining it alongside get_placeholder below also
+        # silences the RemovedInDjango70Warning the 6.1 shim would otherwise
+        # emit for the legacy method.
+        db_type = self.db_type(connection)
+        if hasattr(value, "as_sql"):
+            sql, params = compiler.compile(value)
+            return f"{sql}::{db_type}", params
+        return f"%s::{db_type}", (value,)
+
     def get_placeholder(self, value, compiler, connection):
+        # Django < 6.1 API; removed in Django 7.0.
         return "%s::{}".format(self.db_type(connection))
 
     def get_prep_value(self, value: Any) -> Any:
