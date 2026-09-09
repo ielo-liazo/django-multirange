@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from django.contrib.postgres.constraints import ExclusionConstraint
 from django.contrib.postgres.fields import RangeOperators
+from django.contrib.postgres.indexes import GistIndex
 from django.db import models
 
 from multirange import (
@@ -16,6 +17,14 @@ from multirange import (
 
 
 class RangeRow(models.Model):
+    """One column per supported multirange type, each with a GiST index.
+
+    PostgreSQL defines a default GiST operator class for every multirange
+    type, so ``GistIndex`` needs no ``opclasses`` argument. Indexing all
+    five columns keeps ``test_indexes.py`` honest about that claim for
+    each field the package ships.
+    """
+
     ints = MultiIntegerRangeField(null=True, blank=True)
     bigints = MultiBigIntegerRangeField(null=True, blank=True)
     decimals = MultiDecimalRangeField(null=True, blank=True)
@@ -24,6 +33,13 @@ class RangeRow(models.Model):
 
     class Meta:
         app_label = "tests"
+        indexes = [
+            GistIndex(fields=["ints"], name="rangerow_ints_gist"),
+            GistIndex(fields=["bigints"], name="rangerow_bigints_gist"),
+            GistIndex(fields=["decimals"], name="rangerow_decimals_gist"),
+            GistIndex(fields=["dates"], name="rangerow_dates_gist"),
+            GistIndex(fields=["timestamps"], name="rangerow_timestamps_gist"),
+        ]
 
 
 class VlanReservation(models.Model):
