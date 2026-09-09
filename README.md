@@ -74,6 +74,91 @@ Reservation.objects.filter(available_seats__overlap=Int4Multirange([Range(8, 22)
 Reservation.objects.filter(blackout_dates__isempty=False)
 ```
 
+### Indexes
+
+PostgreSQL ships a default GiST operator class for multiranges, so
+`django.contrib.postgres.indexes.GistIndex` works on a multirange column
+with no extra configuration. This is what makes `@>`, `<@`, `&&` and the
+neighbouring operators fast:
+
+```python
+from django.contrib.postgres.indexes import GistIndex
+
+
+class Reservation(models.Model):
+    available_seats = MultiIntegerRangeField()
+
+    class Meta:
+        indexes = [
+            GistIndex(fields=["available_seats"], name="reservation_seats_gist"),
+        ]
+```
+
+SP-GiST is *not* usable here: PostgreSQL defines no default `spgist`
+operator class for multirange types, and creating such an index fails
+with `data type int4multirange has no default operator class for access
+method "spgist"`.
+
+### Exclusion constraints
+
+The main reason to reach for a multirange rather than several range rows
+is being able to reserve a set of non-contiguous intervals as a single
+value, and still have the database refuse overlaps. `ExclusionConstraint`
+over the `&&` operator does exactly that:
+
+```python
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import RangeOperators
+
+
+class VlanReservation(models.Model):
+    customer_id = models.IntegerField()
+    vlans = MultiIntegerRangeField()
+
+    class Meta:
+        constraints = [
+            ExclusionConstraint(
+                name="vlanreservation_no_customer_overlap",
+                expressions=[
+                    ("customer_id", RangeOperators.EQUAL),
+                    ("vlans", RangeOperators.OVERLAPS),
+                ],
+            ),
+        ]
+```
+
+which PostgreSQL renders as:
+
+```sql
+EXCLUDE USING GIST (customer_id WITH =, vlans WITH &&)
+```
+
+Two reservations for the same customer can then never share a VLAN, even
+when the collision is between subranges that are far apart:
+
+```python
+VlanReservation.objects.create(customer_id=1, vlans=[(100, 110), (900, 910)])
+# Rejected: 905 is already taken by the row above.
+VlanReservation.objects.create(customer_id=1, vlans=[(300, 310), (905, 920)])
+```
+
+Note the `customer_id WITH =` part: comparing a scalar with `=` inside a
+GiST exclusion constraint requires the [`btree_gist`][btree-gist]
+extension. Install it with a migration operation before the constraint is
+created:
+
+```python
+from django.contrib.postgres.operations import BtreeGistExtension
+
+class Migration(migrations.Migration):
+    operations = [BtreeGistExtension(), ...]
+```
+
+A constraint on the multirange column alone (`vlans WITH &&`, no scalar
+expression) needs no extension.
+
+[btree-gist]: https://www.postgresql.org/docs/current/btree-gist.html
+
 ## Running the tests
 
 The suite uses `pytest`, `pytest-django`, and `hypothesis` for
@@ -121,9 +206,31 @@ uv run pytest tests/test_smoke.py tests/test_serialization.py
 
 ### CI
 
-GitHub Actions uses a `postgres:18` service container on every push
-and pull request, against the matrix of supported Python (3.10–3.14)
-and Django (4.2 / 5.2 / 6.0 / 6.1) versions.
+GitHub Actions runs `ruff check` and `ruff format --check`, then the
+test suite against a `postgres:18` service container on every push and
+pull request, across the matrix of supported Python (3.10–3.14) and
+Django (4.2 / 5.2 / 6.0 / 6.1) versions. Each matrix cell uploads a
+`coverage.xml` artifact.
+
+## Type hints
+
+The package is annotated and ships a `py.typed` marker, so type
+checkers pick up its annotations without a stub package.
+
+## Releasing
+
+Releases are published to PyPI by `.github/workflows/release.yml` when a
+`vX.Y.Z` tag is pushed. The workflow refuses to build if the tag does not
+match `version` in `pyproject.toml`, and uploads via PyPI [Trusted
+Publishing][trusted-publishing] from the `pypi` GitHub environment — no
+API token is stored in the repository.
+
+```sh
+# after bumping the version in pyproject.toml and updating CHANGELOG.md
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+[trusted-publishing]: https://docs.pypi.org/trusted-publishers/
 
 ## License
 
