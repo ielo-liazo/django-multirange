@@ -9,6 +9,7 @@ has come back from the database, sending the same value back must
 yield the same result. That covers every normalization pass without
 us having to implement them.
 """
+
 from __future__ import annotations
 
 import pytest

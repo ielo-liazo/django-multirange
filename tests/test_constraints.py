@@ -11,6 +11,7 @@ The constraint is declared on ``VlanReservation.Meta.constraints``;
 the ``btree_gist`` extension it depends on is installed on ``template1``
 in ``conftest.py`` so the test DB inherits it.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -36,9 +37,7 @@ def test_disjoint_ranges_in_one_reservation_are_kept_intact():
     The two ranges are disjoint, so PostgreSQL stores them as a
     two-element multirange without merging.
     """
-    reservation = VlanReservation.objects.create(
-        customer_id=1, vlans=_vlans((1, 11), (500, 601))
-    )
+    reservation = VlanReservation.objects.create(customer_id=1, vlans=_vlans((1, 11), (500, 601)))
     refetched = VlanReservation.objects.get(pk=reservation.pk)
     assert len(refetched.vlans) == 2
     assert refetched.vlans[0].lower == 1 and refetched.vlans[0].upper == 11
@@ -51,9 +50,7 @@ def test_overlapping_ranges_in_one_reservation_are_merged():
     This is what makes "VLAN 10 reserved twice in the same row"
     impossible by construction — the two overlapping ranges become one.
     """
-    reservation = VlanReservation.objects.create(
-        customer_id=1, vlans=_vlans((1, 11), (5, 15))
-    )
+    reservation = VlanReservation.objects.create(customer_id=1, vlans=_vlans((1, 11), (5, 15)))
     refetched = VlanReservation.objects.get(pk=reservation.pk)
     assert len(refetched.vlans) == 1
     assert refetched.vlans[0].lower == 1 and refetched.vlans[0].upper == 15
@@ -65,7 +62,8 @@ def test_same_customer_overlapping_vlans_rejected():
     with pytest.raises(IntegrityError):
         with transaction.atomic():
             VlanReservation.objects.create(
-                customer_id=1, vlans=_vlans((10, 20))  # contains VLAN 10
+                customer_id=1,
+                vlans=_vlans((10, 20)),  # contains VLAN 10
             )
 
 
@@ -92,6 +90,4 @@ def test_overlap_detected_when_only_one_subrange_collides():
     VlanReservation.objects.create(customer_id=1, vlans=_vlans((1, 11), (500, 601)))
     with pytest.raises(IntegrityError):
         with transaction.atomic():
-            VlanReservation.objects.create(
-                customer_id=1, vlans=_vlans((2000, 3001), (595, 611))
-            )
+            VlanReservation.objects.create(customer_id=1, vlans=_vlans((2000, 3001), (595, 611)))

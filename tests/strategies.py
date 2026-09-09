@@ -5,6 +5,7 @@ These strategies generate ranges with realistic boundary combinations
 number of ranges — PostgreSQL will normalize whatever we give it on
 write, but we want to exercise the diversity on the Python side.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -32,21 +33,16 @@ def _ordered_pair(elem):
     accept them in the wider strategies, but ``_ordered_pair`` itself
     never produces them.
     """
-    return st.tuples(elem, elem).map(lambda p: tuple(sorted(p))).filter(
-        lambda p: p[0] != p[1]
-    )
+    return st.tuples(elem, elem).map(lambda p: tuple(sorted(p))).filter(lambda p: p[0] != p[1])
 
 
 def _range_from_pair_strategy(elem, allow_infinite=True):
     """Produce a Range over ``elem``, occasionally with ±infinity bounds."""
+
     @st.composite
     def _range(draw):
         kind = draw(
-            st.sampled_from(
-                ["bounded", "lower_inf", "upper_inf", "both_inf"]
-                if allow_infinite
-                else ["bounded"]
-            )
+            st.sampled_from(["bounded", "lower_inf", "upper_inf", "both_inf"] if allow_infinite else ["bounded"])
         )
         bounds = draw(_BOUNDS)
         if kind == "bounded":

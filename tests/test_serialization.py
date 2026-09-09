@@ -3,11 +3,10 @@
 These run without a database — we exercise the field's own serializer
 the way Django's fixture loading and ``dumpdata`` use it.
 """
+
 from __future__ import annotations
 
-import datetime
 import json
-from decimal import Decimal
 
 import pytest
 from hypothesis import given

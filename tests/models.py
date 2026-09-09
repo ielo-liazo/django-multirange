@@ -1,4 +1,5 @@
 """Test models exercising every multirange field type."""
+
 from __future__ import annotations
 
 from django.contrib.postgres.constraints import ExclusionConstraint

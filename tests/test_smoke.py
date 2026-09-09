@@ -1,4 +1,5 @@
 """Sanity checks that don't need a database."""
+
 from __future__ import annotations
 
 from psycopg.types.multirange import (

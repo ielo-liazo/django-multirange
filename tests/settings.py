@@ -5,6 +5,7 @@ set; otherwise it falls back to discrete ``PG*`` env vars (set by the
 testcontainers fixture in ``conftest.py``). Postgres 14+ is required
 for native multirange support.
 """
+
 from __future__ import annotations
 
 import os

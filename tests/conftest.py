@@ -10,6 +10,7 @@ box for local development.
 The container is started lazily inside Django's DB setup hook, so smoke
 tests that don't touch Postgres can run even without Docker available.
 """
+
 from __future__ import annotations
 
 import os
@@ -37,9 +38,7 @@ def _autodetect_docker_host() -> None:
 def _has_explicit_database() -> bool:
     if os.environ.get("DATABASE_URL"):
         return True
-    return any(
-        os.environ.get(var) for var in ("PGHOST", "PGPORT", "PGDATABASE", "PGUSER")
-    )
+    return any(os.environ.get(var) for var in ("PGHOST", "PGPORT", "PGDATABASE", "PGUSER"))
 
 
 @pytest.fixture(scope="session")
