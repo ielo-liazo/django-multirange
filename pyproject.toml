@@ -87,3 +87,5 @@ skip_covered = true
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+# Django writes these; leave them exactly as `makemigrations` emits them.
+extend-exclude = ["**/migrations/*"]
