@@ -46,8 +46,8 @@ Tear down with `docker compose down -v`.
 | `netops/models.py` | All five field types, a GiST index, and the exclusion constraint |
 | `netops/migrations/0001_initial.py` | `BtreeGistExtension` ahead of the constraint |
 | `netops/management/commands/demo.py` | Assignment, normalization, every lookup, the constraint firing, serialization |
-| `netops/forms.py` | Making multirange columns editable in forms and the admin |
-| `netops/admin.py` | Wiring those forms into `ModelAdmin` |
+| `netops/forms.py` | JSON form fields that make multirange columns editable |
+| `netops/admin.py` | Opting into them with `formfield_overrides` |
 
 ### Field types
 
@@ -78,28 +78,36 @@ multirange in one GiST index, it needs the `btree_gist` extension. The
 initial migration installs it with `BtreeGistExtension()` before creating
 the model.
 
-## Two rough edges this example works around
+## Editing multiranges in forms and the admin
 
-Both live in the form layer, which the library leaves deliberately thin —
-a multirange is a *set* of ranges and has no natural single HTML widget.
+Form support is opt-in. A multirange is a *set* of ranges and has no
+natural single HTML widget, so `MultiRangeField.formfield()` returns
+`None` unless you name a `form_class`, and Django leaves the column out
+of any generated ModelForm — the admin's included. Register a model with
+a bare `ModelAdmin` and the multirange column simply will not be there;
+since these columns are `NOT NULL`, saving then fails.
 
-1. **Multirange columns vanish from generated ModelForms.**
-   `MultiRangeField.formfield()` returns `None`, so Django silently drops
-   the column from any `ModelForm`, the admin's included. Registering a
-   model with a plain `ModelAdmin` gives you a form that cannot set the
-   field at all — and since these columns are `NOT NULL`, saving fails.
+`netops/admin.py` opts back in through `formfield_overrides`, one entry
+per field type:
 
-2. **`formfield_overrides` does not help.** Django routes it through
-   `MultiRangeField.formfield()`, which returns `None` without looking at
-   the `form_class` it was handed.
+```python
+formfield_overrides = {
+    MultiIntegerRangeField: {"form_class": IntegerMultiRangeFormField},
+    ...
+}
+```
 
-The way in is an explicit `ModelForm` that declares the field, which is
-what `netops/forms.py` does. It builds on
-`multirange.forms.MultiRangeFormField` (which parses a JSON list of range
-objects) and adds the two halves the base class leaves to the caller:
-rendering a stored value back as JSON, and coercing each bound through a
-form field for the element type so `"2026-07-01"` reaches the database as
-a date rather than a string.
+The form fields it points at live in `netops/forms.py`. They build on
+`multirange.forms.MultiRangeFormField`, which parses a JSON list of range
+objects, and add the two halves the base class leaves to the caller:
+
+* rendering a stored `Multirange` back as JSON, so an existing row loads
+  into the form and can be re-submitted unchanged;
+* coercing each bound through a form field for the element type, so
+  `"2026-07-01"` reaches the database as a date rather than a string.
+
+That second part is why there is one small subclass per type rather than
+a single generic field.
 
 ## A PostgreSQL subtlety worth knowing
 

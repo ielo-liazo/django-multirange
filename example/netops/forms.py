@@ -1,14 +1,16 @@
 """Making multirange fields editable in forms and in the admin.
 
 ``django-multirange`` deliberately ships no widget: a multirange is a
-*set* of ranges, which has no natural single HTML input. `MultiRangeField.formfield()`
-therefore returns ``None``, and Django silently drops the column from any
-generated ModelForm — including the admin's.
+*set* of ranges, which has no natural single HTML input. With no
+``form_class``, ``MultiRangeField.formfield()`` returns ``None`` and
+Django leaves the column out of any generated ModelForm — the admin's
+included. Supplying one opts back in, which is what ``netops.admin``
+does through ``formfield_overrides``.
 
-This module shows the glue an application supplies to get an editable
-field back. It builds on ``multirange.forms.MultiRangeFormField``, which
-parses a JSON list of range objects, and adds the two halves the base
-class leaves to the caller:
+This module holds the form fields it points at. They build on
+``multirange.forms.MultiRangeFormField``, which parses a JSON list of
+range objects, and add the two halves the base class leaves to the
+caller:
 
 * ``prepare_value`` — render a stored ``Multirange`` back as JSON, so an
   existing row can be loaded into the form and re-submitted unchanged.
@@ -34,13 +36,6 @@ from psycopg.types.multirange import (
 from psycopg.types.range import Range
 
 from multirange.forms import MultiRangeFormField
-
-from .models import (
-    AsnAllocation,
-    MaintenanceWindow,
-    ServiceContract,
-    VlanReservation,
-)
 
 
 def _json_default(obj: Any) -> str:
@@ -114,48 +109,3 @@ class DateMultiRangeFormField(TypedMultiRangeFormField):
 class DateTimeMultiRangeFormField(TypedMultiRangeFormField):
     multirange_type = TimestamptzMultirange
     base_form_field = forms.DateTimeField(required=False)
-
-
-# --- ModelForms -----------------------------------------------------------
-#
-# `formfield_overrides` on a ModelAdmin does not work for multirange
-# columns: Django routes it through `MultiRangeField.formfield()`, which
-# returns None without looking at the `form_class` it was handed. Declaring
-# the field on an explicit ModelForm is the way in.
-
-
-class VlanReservationForm(forms.ModelForm):
-    vlans = IntegerMultiRangeFormField(
-        help_text='e.g. [{"lower": 100, "upper": 110}, {"lower": 900, "upper": 910}]',
-    )
-
-    class Meta:
-        model = VlanReservation
-        fields = ["customer", "vlans", "note"]
-
-
-class AsnAllocationForm(forms.ModelForm):
-    asns = BigIntegerMultiRangeFormField()
-
-    class Meta:
-        model = AsnAllocation
-        fields = ["customer", "asns"]
-
-
-class MaintenanceWindowForm(forms.ModelForm):
-    slots = DateTimeMultiRangeFormField(
-        help_text='e.g. [{"lower": "2026-07-01T22:00:00+00:00", "upper": "2026-07-02T02:00:00+00:00"}]',
-    )
-
-    class Meta:
-        model = MaintenanceWindow
-        fields = ["site", "slots"]
-
-
-class ServiceContractForm(forms.ModelForm):
-    active = DateMultiRangeFormField()
-    tiers = DecimalMultiRangeFormField(required=False)
-
-    class Meta:
-        model = ServiceContract
-        fields = ["customer", "active", "tiers"]

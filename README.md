@@ -159,6 +159,35 @@ expression) needs no extension.
 
 [btree-gist]: https://www.postgresql.org/docs/current/btree-gist.html
 
+### Forms and the admin
+
+A multirange is a *set* of ranges and has no natural single HTML widget,
+so form support is opt-in: with no `form_class`, `formfield()` returns
+`None` and Django leaves the column out of generated forms — the admin's
+included. Name one and the column comes back:
+
+```python
+from multirange import MultiIntegerRangeField
+from multirange.forms import MultiRangeFormField
+from psycopg.types.multirange import Int4Multirange
+
+
+class VlanFormField(MultiRangeFormField):
+    multirange_type = Int4Multirange
+
+
+class ReservationAdmin(admin.ModelAdmin):
+    formfield_overrides = {
+        MultiIntegerRangeField: {"form_class": VlanFormField},
+    }
+```
+
+`MultiRangeFormField` parses a JSON list of range objects, e.g.
+`[{"lower": 1, "upper": 5, "bounds": "[)"}]`. It leaves rendering a
+stored value back to JSON, and coercing bounds to the element type, to
+the application — [`example/netops/forms.py`](example/netops/forms.py)
+shows both.
+
 ## Example project
 
 [`example/`](example/) is a standalone Django project — with its own

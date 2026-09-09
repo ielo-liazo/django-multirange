@@ -34,7 +34,10 @@ before 1.0.
   (`lower()`) and `endswith` (`upper()`) transforms.
 - Serialization support (`value_to_string` / `to_python`) covering empty
   ranges and unbounded ends, so `dumpdata` / `loaddata` round-trip.
-- `MultiRangeFormField`, a JSON-based form field for API use.
+- `MultiRangeFormField`, a JSON-based form field for API use. Model
+  fields have no default widget, but naming a `form_class` — through
+  `ModelAdmin.formfield_overrides` or a ModelForm — opts a multirange
+  column back into generated forms.
 - `py.typed` marker: the package ships its inline type annotations.
 
 ### Compatibility
