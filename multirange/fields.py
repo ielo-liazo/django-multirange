@@ -261,12 +261,22 @@ class MultiRangeField(CheckPostgresInstalledMixin, models.Field):
         return json.dumps(result)
 
     def formfield(self, **kwargs: Any) -> Any:
-        # Provide a basic form field if a class is defined; otherwise return None
-        # so admin/Form usage is opt-in for multiranges.
-        form_class = getattr(self, "form_field", None)
+        """Build a form field, or ``None`` when the caller supplied no class.
+
+        A multirange is a *set* of ranges, which has no natural single
+        HTML widget, so form support is opt-in: with no ``form_class``
+        this returns ``None`` and Django leaves the column out of
+        generated forms.
+
+        A ``form_class`` passed by the caller always wins. That is what
+        makes ``ModelAdmin.formfield_overrides`` work — Django routes it
+        through here, so ignoring the argument would leave the documented
+        extension point inert.
+        """
+        form_class = kwargs.pop("form_class", None) or getattr(self, "form_field", None)
         if form_class is None:
             return None
-        kwargs.setdefault("form_class", form_class)
+        kwargs["form_class"] = form_class
         return super().formfield(**kwargs)
 
 
