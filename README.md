@@ -159,6 +159,26 @@ expression) needs no extension.
 
 [btree-gist]: https://www.postgresql.org/docs/current/btree-gist.html
 
+## Example project
+
+[`example/`](example/) is a standalone Django project — with its own
+`pyproject.toml` — exercising every feature of this package against a
+real database: all five field types, the lookups, a GiST index, the
+exclusion constraint, serialization, and the form/admin glue an
+application has to supply.
+
+```sh
+cd example
+docker compose up -d --wait
+uv sync
+uv run python manage.py migrate
+uv run python manage.py demo
+```
+
+`manage.py demo` prints each query it runs and the rows that come back,
+so the output doubles as documentation. See
+[`example/README.md`](example/README.md).
+
 ## Running the tests
 
 The suite uses `pytest`, `pytest-django`, and `hypothesis` for
