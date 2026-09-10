@@ -10,7 +10,7 @@ project adheres to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-09-09
+## [0.1.0] - 2026-09-10
 
 First public release. Beta: the ORM surface is exercised against every
 supported Python/Django combination, but the API may still change
