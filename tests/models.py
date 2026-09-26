@@ -13,6 +13,7 @@ from multirange import (
     MultiDateTimeRangeField,
     MultiDecimalRangeField,
     MultiIntegerRangeField,
+    MultiRangeField,
 )
 
 
@@ -40,6 +41,16 @@ class RangeRow(models.Model):
             GistIndex(fields=["dates"], name="rangerow_dates_gist"),
             GistIndex(fields=["timestamps"], name="rangerow_timestamps_gist"),
         ]
+
+
+class GenericRow(models.Model):
+    """Columns declared through the generic ``MultiRangeField(base_field=...)``."""
+
+    dates = MultiRangeField(base_field=models.DateField(), null=True, blank=True)
+    decimals = MultiRangeField(base_field=models.DecimalField(max_digits=10, decimal_places=2), null=True, blank=True)
+
+    class Meta:
+        app_label = "tests"
 
 
 class VlanReservation(models.Model):

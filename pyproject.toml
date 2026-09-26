@@ -66,6 +66,7 @@ Issues = "https://github.com/ielo-liazo/django-multirange/issues"
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.414",
     "ruff>=0.15.12",
 ]
 
