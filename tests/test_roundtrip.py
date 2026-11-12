@@ -25,7 +25,7 @@ from psycopg.types.multirange import (
 from psycopg.types.range import Range
 
 from . import strategies as s
-from .models import RangeRow
+from .models import GenericRow, RangeRow
 
 
 pytestmark = pytest.mark.django_db
@@ -96,6 +96,27 @@ def test_timestamptz_roundtrip(db, value):
     assert isinstance(once, TimestamptzMultirange)
     twice = _roundtrip("timestamps", once)
     assert once == twice
+
+
+@HYPO_SETTINGS
+@given(s.date_multiranges)
+def test_generic_base_field_roundtrip(db, value):
+    """``MultiRangeField(base_field=...)`` behaves like the named subclass."""
+    row = GenericRow.objects.create(dates=value)
+    once = GenericRow.objects.get(pk=row.pk).dates
+    assert isinstance(once, DateMultirange)
+    row = GenericRow.objects.create(dates=once)
+    assert GenericRow.objects.get(pk=row.pk).dates == once
+
+
+@pytest.mark.django_db
+def test_generic_base_field_lookup():
+    """Lookups cast scalars through the instance's base field."""
+    import datetime
+
+    row = GenericRow.objects.create(dates=[(datetime.date(2026, 1, 1), datetime.date(2026, 2, 1))])
+    assert list(GenericRow.objects.filter(dates__contains=datetime.date(2026, 1, 15))) == [row]
+    assert not GenericRow.objects.filter(dates__contains=datetime.date(2026, 3, 1)).exists()
 
 
 @pytest.mark.django_db

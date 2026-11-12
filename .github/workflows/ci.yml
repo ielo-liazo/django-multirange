@@ -28,6 +28,9 @@ jobs:
       - name: ruff format --check
         run: uv run --no-sync ruff format --check .
 
+      - name: pyright (static value typing)
+        run: uv run --no-sync pyright tests/typing_check.py
+
   test:
     runs-on: ubuntu-latest
     strategy:

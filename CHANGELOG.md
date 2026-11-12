@@ -10,6 +10,26 @@ project adheres to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+### Added
+
+- `MultiRangeField(base_field=...)`: declare a multirange column from its
+  element field, the way `ArrayField` works. The PostgreSQL type and
+  psycopg class come from the base field, and `deconstruct()` records
+  `base_field` so migrations rebuild it. An unsupported base field fails
+  `manage.py check` with `multirange.E001`.
+- Static value typing: `MultiRangeField` is generic in its psycopg value
+  type, so type checkers infer, for example, `DateMultirange` when you read
+  a `MultiDateRangeField` or `MultiRangeField(base_field=models.DateField())`
+  attribute.
+
+### Changed
+
+- The named fields are now thin subclasses of `MultiRangeField`, and
+  `db_type()` is derived from the base field. Their `deconstruct()` output
+  is unchanged, so existing migrations need no update.
+- Instantiating `MultiRangeField()` with no `base_field` now raises
+  `TypeError`. Before, it failed later, when the field was attached to a model.
+
 ## [0.1.0] - 2026-09-10
 
 First public release. Beta: the ORM surface is exercised against every

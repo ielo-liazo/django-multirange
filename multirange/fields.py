@@ -14,7 +14,7 @@ which behave like a sequence of ``Range`` objects.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, overload
 
 from django.apps import apps
 from django.contrib.postgres.fields.utils import AttributeSetter
@@ -31,6 +31,9 @@ from psycopg.types.multirange import (
 from psycopg.types.range import Range
 
 from . import lookups as mr_lookups
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 try:
     # Django 6.0+ ships this mixin; on earlier versions we provide an
@@ -67,6 +70,29 @@ __all__ = [
     "MultiDateTimeRangeField",
     "MultiRangeOperators",
 ]
+
+
+# Django base field class -> (PostgreSQL type, psycopg Multirange subclass).
+# Looked up along the base field's MRO, so subclasses resolve to their
+# nearest supported ancestor: ``SmallIntegerField`` maps to int4, and
+# ``DateTimeField`` (a ``DateField`` subclass) maps to tstz, not date.
+_MULTIRANGE_TYPES: dict[type[models.Field], tuple[str, type[Multirange]]] = {
+    models.IntegerField: ("int4multirange", Int4Multirange),
+    models.BigIntegerField: ("int8multirange", Int8Multirange),
+    models.DecimalField: ("nummultirange", NumericMultirange),
+    models.DateField: ("datemultirange", DateMultirange),
+    models.DateTimeField: ("tstzmultirange", TimestamptzMultirange),
+}
+
+
+def _resolve_multirange_type(base_field: models.Field) -> tuple[str, type[Multirange]] | None:
+    for cls in type(base_field).__mro__:
+        if cls in _MULTIRANGE_TYPES:
+            return _MULTIRANGE_TYPES[cls]
+    return None
+
+
+_MR = TypeVar("_MR", bound="Multirange[Any]")
 
 
 class MultiRangeOperators:
@@ -118,12 +144,20 @@ def _coerce_to_multirange(multirange_type: type[Multirange], value: Any) -> Mult
     return multirange_type(ranges)
 
 
-class MultiRangeField(CheckPostgresInstalledMixin, models.Field):
-    """Base class for PostgreSQL multirange fields.
+class MultiRangeField(CheckPostgresInstalledMixin, models.Field, Generic[_MR]):
+    """PostgreSQL multirange field.
 
-    Subclasses must define ``base_field`` (a Django field class for the
-    element type), ``multirange_type`` (a psycopg ``Multirange`` subclass),
-    and ``db_type`` returning the PostgreSQL type name.
+    Use it directly with the element type as ``base_field``, like
+    ``ArrayField``::
+
+        slots = MultiRangeField(base_field=models.DateField())
+
+    or through one of the named subclasses (``MultiDateRangeField`` …),
+    which fix ``base_field`` at class level. The PostgreSQL type and the
+    psycopg ``Multirange`` subclass are derived from the base field.
+
+    The type parameter is the Python value type, so type checkers see
+    ``obj.slots`` as ``DateMultirange`` rather than ``Any``.
     """
 
     empty_strings_allowed = False
@@ -132,12 +166,88 @@ class MultiRangeField(CheckPostgresInstalledMixin, models.Field):
     base_field: Any = None
     multirange_type: type[Multirange] = Multirange
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    if TYPE_CHECKING:
+        # The django-stubs mypy plugin reads these two attributes.
+        _pyi_private_set_type: Any
+        _pyi_private_get_type: _MR
+
+        # Pyright (and mypy without the plugin) use the descriptor
+        # signature to type attribute access on model instances.
+        @overload
+        def __get__(self, instance: None, owner: Any) -> Self: ...
+        @overload
+        def __get__(self, instance: models.Model, owner: Any) -> _MR: ...
+        def __get__(self, instance: Any, owner: Any) -> Any: ...
+
+        # Infer the value type from ``base_field``. Subclasses come
+        # before their parents so the narrower match wins.
+        @overload
+        def __init__(
+            self: MultiRangeField[TimestamptzMultirange], *args: Any, base_field: models.DateTimeField, **kwargs: Any
+        ) -> None: ...
+        @overload
+        def __init__(
+            self: MultiRangeField[DateMultirange], *args: Any, base_field: models.DateField, **kwargs: Any
+        ) -> None: ...
+        @overload
+        def __init__(
+            self: MultiRangeField[Int8Multirange], *args: Any, base_field: models.BigIntegerField, **kwargs: Any
+        ) -> None: ...
+        @overload
+        def __init__(
+            self: MultiRangeField[Int4Multirange], *args: Any, base_field: models.IntegerField, **kwargs: Any
+        ) -> None: ...
+        @overload
+        def __init__(
+            self: MultiRangeField[NumericMultirange], *args: Any, base_field: models.DecimalField, **kwargs: Any
+        ) -> None: ...
+        @overload
+        def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+
+    def __init__(self, *args: Any, base_field: models.Field | None = None, **kwargs: Any) -> None:
         if "default_bounds" in kwargs:
             raise TypeError(f"Cannot use 'default_bounds' with {self.__class__.__name__}.")
-        if isinstance(self.base_field, type):
+        self._base_field_explicit = base_field is not None
+        if base_field is not None:
+            if self.base_field is not None:
+                raise TypeError(f"{self.__class__.__name__} fixes its base field; 'base_field' cannot be passed.")
+            self.base_field = base_field
+            resolved = _resolve_multirange_type(base_field)
+            if resolved is not None:
+                self.multirange_type = resolved[1]
+        elif isinstance(self.base_field, type):
             self.base_field = self.base_field()
+        elif self.base_field is None:
+            raise TypeError(f"{self.__class__.__name__} requires a 'base_field', e.g. base_field=models.DateField().")
         super().__init__(*args, **kwargs)
+
+    def check(self, **kwargs: Any) -> list[checks.CheckMessage]:
+        errors = super().check(**kwargs)
+        if _resolve_multirange_type(self.base_field) is None:
+            supported = ", ".join(cls.__name__ for cls in _MULTIRANGE_TYPES)
+            errors.append(
+                checks.Error(
+                    f"PostgreSQL has no multirange type for {type(self.base_field).__name__}.",
+                    hint=f"Use one of: {supported}.",
+                    obj=self,
+                    id="multirange.E001",
+                )
+            )
+        return errors
+
+    def db_type(self, connection):
+        resolved = _resolve_multirange_type(self.base_field)
+        if resolved is None:
+            raise TypeError(f"PostgreSQL has no multirange type for {type(self.base_field).__name__}.")
+        return resolved[0]
+
+    def deconstruct(self):
+        name, path, args, kwargs = super().deconstruct()
+        # Named subclasses fix their base field, so their migrations stay
+        # exactly as before; only the generic form records it.
+        if self._base_field_explicit:
+            kwargs["base_field"] = self.base_field.clone()
+        return name, path, args, kwargs
 
     @property
     def model(self):
@@ -280,44 +390,29 @@ class MultiRangeField(CheckPostgresInstalledMixin, models.Field):
         return super().formfield(**kwargs)
 
 
-class MultiIntegerRangeField(MultiRangeField):
+class MultiIntegerRangeField(MultiRangeField[Int4Multirange]):
     base_field = models.IntegerField
     multirange_type = Int4Multirange
 
-    def db_type(self, connection):
-        return "int4multirange"
 
-
-class MultiBigIntegerRangeField(MultiRangeField):
+class MultiBigIntegerRangeField(MultiRangeField[Int8Multirange]):
     base_field = models.BigIntegerField
     multirange_type = Int8Multirange
 
-    def db_type(self, connection):
-        return "int8multirange"
 
-
-class MultiDecimalRangeField(MultiRangeField):
+class MultiDecimalRangeField(MultiRangeField[NumericMultirange]):
     base_field = models.DecimalField
     multirange_type = NumericMultirange
 
-    def db_type(self, connection):
-        return "nummultirange"
 
-
-class MultiDateRangeField(MultiRangeField):
+class MultiDateRangeField(MultiRangeField[DateMultirange]):
     base_field = models.DateField
     multirange_type = DateMultirange
 
-    def db_type(self, connection):
-        return "datemultirange"
 
-
-class MultiDateTimeRangeField(MultiRangeField):
+class MultiDateTimeRangeField(MultiRangeField[TimestamptzMultirange]):
     base_field = models.DateTimeField
     multirange_type = TimestamptzMultirange
-
-    def db_type(self, connection):
-        return "tstzmultirange"
 
 
 # Register lookups for all multirange fields.

@@ -31,6 +31,32 @@ class Reservation(models.Model):
     blackout_dates = MultiDateRangeField(null=True)
 ```
 
+Each named field is shorthand for the generic `MultiRangeField` with a
+fixed element type. You can also pass the element type yourself as
+`base_field`, the same way `ArrayField` works:
+
+```python
+from multirange import MultiRangeField
+
+
+class Reservation(models.Model):
+    blackout_dates = MultiRangeField(base_field=models.DateField(), null=True)
+```
+
+| Named field                 | Generic equivalent                                  | PostgreSQL type  |
+| --------------------------- | --------------------------------------------------- | ---------------- |
+| `MultiIntegerRangeField`    | `MultiRangeField(base_field=models.IntegerField())`    | `int4multirange` |
+| `MultiBigIntegerRangeField` | `MultiRangeField(base_field=models.BigIntegerField())` | `int8multirange` |
+| `MultiDecimalRangeField`    | `MultiRangeField(base_field=models.DecimalField(...))` | `nummultirange`  |
+| `MultiDateRangeField`       | `MultiRangeField(base_field=models.DateField())`       | `datemultirange` |
+| `MultiDateTimeRangeField`   | `MultiRangeField(base_field=models.DateTimeField())`   | `tstzmultirange` |
+
+Subclasses of these fields resolve to their closest supported parent, so
+`SmallIntegerField` maps to `int4multirange`. Other base fields fail
+`manage.py check` with `multirange.E001`, because PostgreSQL has no
+multirange type for them. The two forms can't be combined: passing
+`base_field` to a named field raises `TypeError`.
+
 Setting values:
 
 ```python
@@ -255,7 +281,8 @@ uv run pytest tests/test_smoke.py tests/test_serialization.py
 
 ### CI
 
-GitHub Actions runs `ruff check` and `ruff format --check`, then the
+GitHub Actions runs `ruff check`, `ruff format --check` and pyright on
+`tests/typing_check.py`, then the
 test suite against a `postgres:18` service container on every push and
 pull request, across the matrix of supported Python (3.10–3.14) and
 Django (4.2 / 5.2 / 6.0 / 6.1) versions. Each matrix cell uploads a
@@ -265,6 +292,24 @@ Django (4.2 / 5.2 / 6.0 / 6.1) versions. Each matrix cell uploads a
 
 The package is annotated and ships a `py.typed` marker, so type
 checkers pick up its annotations without a stub package.
+
+Fields are generic in their value type, so type checkers infer the
+psycopg class you get when you read the attribute:
+
+```python
+class Reservation(models.Model):
+    seats = MultiIntegerRangeField()
+    dates = MultiRangeField(base_field=models.DateField())
+
+reveal_type(reservation.seats)  # Int4Multirange
+reveal_type(reservation.dates)  # DateMultirange
+```
+
+Pyright gets this from the field's descriptor signature. mypy gets it
+the same way, or from the django-stubs plugin when that's installed.
+Without the plugin, a `null=True` column is still typed as not
+`None`. `tests/typing_check.py` pins down these inferences, and CI
+checks it with pyright.
 
 ## Releasing
 

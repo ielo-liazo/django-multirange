@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+from django.db import models
 from psycopg.types.multirange import (
     DateMultirange,
     Int4Multirange,
@@ -38,8 +40,6 @@ def test_field_multirange_types():
 
 
 def test_default_bounds_rejected():
-    import pytest
-
     with pytest.raises(TypeError):
         MultiIntegerRangeField(default_bounds="[]")
 
@@ -141,3 +141,61 @@ def test_formfield_passes_through_other_kwargs():
     form_field = field.formfield(form_class=MultiRangeFormField, help_text="vlans", required=False)
     assert form_field.help_text == "vlans"
     assert form_field.required is False
+
+
+@pytest.mark.parametrize(
+    ("base_field", "db_type", "multirange_type"),
+    [
+        (models.IntegerField(), "int4multirange", Int4Multirange),
+        (models.SmallIntegerField(), "int4multirange", Int4Multirange),
+        (models.BigIntegerField(), "int8multirange", Int8Multirange),
+        (models.DecimalField(max_digits=10, decimal_places=2), "nummultirange", NumericMultirange),
+        (models.DateField(), "datemultirange", DateMultirange),
+        (models.DateTimeField(), "tstzmultirange", TimestamptzMultirange),
+    ],
+)
+def test_base_field_resolves_types(base_field, db_type, multirange_type):
+    """The generic form derives both types from the base field's class."""
+    field = MultiRangeField(base_field=base_field)
+    assert field.db_type(None) == db_type
+    assert field.multirange_type is multirange_type
+    assert field.base_field is base_field
+
+
+def test_base_field_deconstruct_roundtrip():
+    field = MultiRangeField(base_field=models.DecimalField(max_digits=10, decimal_places=2), null=True)
+    name, path, args, kwargs = field.deconstruct()
+    assert path == "multirange.fields.MultiRangeField"
+    assert isinstance(kwargs["base_field"], models.DecimalField)
+    assert kwargs["base_field"] is not field.base_field
+    rebuilt = MultiRangeField(*args, **kwargs)
+    assert rebuilt.db_type(None) == "nummultirange"
+    assert rebuilt.base_field.max_digits == 10
+    assert rebuilt.null is True
+
+
+def test_named_subclass_deconstruct_omits_base_field():
+    """Existing migrations for the named classes must not change."""
+    _, path, _, kwargs = MultiDateRangeField(null=True).deconstruct()
+    assert path == "multirange.fields.MultiDateRangeField"
+    assert "base_field" not in kwargs
+
+
+def test_named_subclass_rejects_base_field():
+    with pytest.raises(TypeError, match="fixes its base field"):
+        MultiDateRangeField(base_field=models.IntegerField())
+
+
+def test_missing_base_field_rejected():
+    with pytest.raises(TypeError, match="requires a 'base_field'"):
+        MultiRangeField()
+
+
+def test_unsupported_base_field_fails_check():
+    field = MultiRangeField(base_field=models.CharField(max_length=10))
+    field.set_attributes_from_name("labels")
+    errors = [e for e in field.check() if e.id == "multirange.E001"]
+    assert len(errors) == 1
+    assert "CharField" in errors[0].msg
+    with pytest.raises(TypeError, match="no multirange type"):
+        field.db_type(None)
