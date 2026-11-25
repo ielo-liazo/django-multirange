@@ -46,7 +46,7 @@ def _postgres_container(request):
     if _has_explicit_database():
         return None
     try:
-        from testcontainers.postgres import PostgresContainer
+        from testcontainers.community.postgres import PostgresContainer
     except ImportError as exc:  # pragma: no cover - dev-time helper
         raise RuntimeError(
             "No DATABASE_URL/PG* env vars are set and testcontainers is not "
