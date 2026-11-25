@@ -21,6 +21,8 @@ project adheres to [Semantic Versioning][semver].
   type, so type checkers infer, for example, `DateMultirange` when you read
   a `MultiDateRangeField` or `MultiRangeField(base_field=models.DateField())`
   attribute.
+- Python 3.15 support, with Django 6.1.3 or later. Django 6.1 is the only
+  supported release that runs on 3.15.
 
 ### Changed
 
